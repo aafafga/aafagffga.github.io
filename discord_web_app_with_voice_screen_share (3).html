@@ -1,0 +1,1013 @@
+<!DOCTYPE html>
+<html lang="ja" class="dark h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Discord風 モバイル＆PC対応 ボイス＆画面共有アプリ</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        discord: {
+                            bg: '#313338',
+                            darker: '#1e1f22',
+                            sidebar: '#2b2d31',
+                            channel: '#2b2d31',
+                            card: '#2b2d31',
+                            active: '#35373c',
+                            hover: '#35373c',
+                            text: '#dbdee1',
+                            muted: '#949ba4',
+                            blurple: '#5865f2',
+                            'blurple-hover': '#4752c4',
+                            green: '#23a55a',
+                            red: '#f23f43'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- PeerJS for WebRTC -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+
+    <style>
+        html, body {
+            height: 100%;
+            height: -webkit-fill-available;
+            overflow: hidden;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+        }
+        body {
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+            min-height: -webkit-fill-available;
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #2b2d31;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #1a1b1e;
+            border-radius: 3px;
+        }
+        .speaking-border {
+            box-shadow: 0 0 0 3px #23a55a !important;
+        }
+        .drawer-transition {
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+    </style>
+</head>
+<body class="bg-discord-bg text-discord-text font-sans antialiased select-none flex flex-col h-full">
+
+    <div id="app" class="flex flex-1 w-full h-full relative overflow-hidden">
+
+        <!-- バックドロップ (スマホ時のサイドバーオーバーレイ) -->
+        <div id="sidebar-backdrop" onclick="toggleMobileSidebar(false)" class="fixed inset-0 bg-black/60 z-30 hidden md:hidden backdrop-blur-sm transition-opacity"></div>
+
+        <!-- 左側：サイドバーエリア (サーバーアイコン＋チャンネルリスト) -->
+        <div id="sidebar-container" class="fixed md:relative inset-y-0 left-0 z-40 flex h-full -translate-x-full md:translate-x-0 drawer-transition flex-shrink-0">
+            
+            <!-- サーバーアイコン列 -->
+            <div class="w-16 bg-discord-darker p-2 flex flex-col items-center gap-2 border-r border-black/10 flex-shrink-0 pt-safe">
+                <div class="w-12 h-12 bg-discord-blurple rounded-2xl flex items-center justify-center cursor-pointer hover:rounded-xl transition-all duration-200 text-white shadow-md group relative">
+                    <i data-lucide="gamepad-2" class="w-6 h-6"></i>
+                    <span class="hidden md:block absolute left-16 bg-black text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity z-50 whitespace-nowrap">メインサーバー</span>
+                </div>
+                <div class="w-8 h-[2px] bg-discord-sidebar rounded my-1"></div>
+                <div id="create-room-btn" onclick="openRoomModal()" class="w-12 h-12 bg-discord-sidebar hover:bg-discord-green text-discord-green hover:text-white rounded-3xl hover:rounded-xl flex items-center justify-center cursor-pointer transition-all duration-200 group relative">
+                    <i data-lucide="plus" class="w-6 h-6"></i>
+                    <span class="hidden md:block absolute left-16 bg-black text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity z-50 whitespace-nowrap">ルーム作成/参加</span>
+                </div>
+            </div>
+
+            <!-- チャンネルリスト列 -->
+            <div class="w-60 bg-discord-sidebar flex flex-col flex-shrink-0 h-full justify-between pt-safe">
+                <div>
+                    <!-- サーバーヘッダー -->
+                    <div class="h-12 border-b border-black/20 px-4 flex items-center justify-between font-bold shadow-sm">
+                        <span class="truncate text-sm" id="server-title">WebRTC スマホ＆PC Hub</span>
+                        <button onclick="toggleMobileSidebar(false)" class="md:hidden text-discord-muted hover:text-white p-1">
+                            <i data-lucide="x" class="w-5 h-5"></i>
+                        </button>
+                    </div>
+
+                    <!-- チャンネルリスト -->
+                    <div class="p-2 space-y-4">
+                        <div>
+                            <div class="flex items-center text-xs font-semibold text-discord-muted px-2 mb-1 tracking-wider uppercase">
+                                <i data-lucide="chevron-down" class="w-3 h-3 mr-1"></i> テキストチャンネル
+                            </div>
+                            <div id="chan-general" onclick="switchChannel('一般'); toggleMobileSidebar(false);" class="flex items-center px-2 py-2 rounded text-discord-text bg-discord-active cursor-pointer hover:bg-discord-hover transition-colors group">
+                                <i data-lucide="hash" class="w-5 h-5 mr-1.5 text-discord-muted group-hover:text-discord-text"></i>
+                                <span class="font-medium text-sm">一般</span>
+                            </div>
+                        </div>
+
+                        <div>
+                            <div class="flex items-center text-xs font-semibold text-discord-muted px-2 mb-1 tracking-wider uppercase">
+                                <i data-lucide="chevron-down" class="w-3 h-3 mr-1"></i> ボイスチャンネル
+                            </div>
+                            <div id="chan-voice" onclick="openRoomModal(); toggleMobileSidebar(false);" class="flex items-center justify-between px-2 py-2 rounded text-discord-muted hover:text-discord-text hover:bg-discord-hover cursor-pointer transition-colors group">
+                                <div class="flex items-center">
+                                    <i data-lucide="volume-2" class="w-5 h-5 mr-1.5 text-discord-muted group-hover:text-discord-text"></i>
+                                    <span class="font-medium text-sm">一般通話</span>
+                                </div>
+                                <span id="voice-user-count" class="text-xs bg-discord-darker px-2 py-0.5 rounded-full text-discord-muted">0</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ユーザープロフィール（サイドバー下部） -->
+                <div class="h-14 bg-discord-darker px-3 flex items-center justify-between border-t border-black/10">
+                    <div class="flex items-center gap-2 overflow-hidden cursor-pointer p-1 rounded hover:bg-discord-hover" onclick="openSettingsModal()">
+                        <div class="relative flex-shrink-0">
+                            <div id="user-avatar" class="w-8 h-8 rounded-full bg-discord-blurple flex items-center justify-center font-bold text-white text-xs">
+                                ユ
+                            </div>
+                            <div id="user-status-dot" class="w-2.5 h-2.5 bg-discord-muted rounded-full absolute bottom-0 right-0 border-2 border-discord-darker"></div>
+                        </div>
+                        <div class="flex flex-col min-w-0">
+                            <span id="display-username" class="text-xs font-bold truncate">ユーザー</span>
+                            <span id="display-user-id" class="text-[10px] text-discord-muted truncate">未接続</span>
+                        </div>
+                    </div>
+                    <button onclick="openSettingsModal()" class="p-1.5 hover:bg-discord-hover text-discord-muted hover:text-discord-text rounded" title="設定">
+                        <i data-lucide="settings" class="w-4 h-4"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 中央/メインビューエリア -->
+        <div class="flex-1 flex flex-col bg-discord-bg h-full min-w-0 relative">
+            
+            <!-- アプリ頂点ヘッダー -->
+            <div class="h-12 border-b border-black/20 px-3 flex items-center justify-between shadow-sm flex-shrink-0 bg-discord-bg z-10 pt-safe">
+                <div class="flex items-center gap-2 min-w-0">
+                    <button onclick="toggleMobileSidebar(true)" class="md:hidden text-discord-muted hover:text-white p-1 focus:outline-none">
+                        <i data-lucide="menu" class="w-6 h-6"></i>
+                    </button>
+                    <i data-lucide="hash" class="w-5 h-5 text-discord-muted hidden sm:inline"></i>
+                    <span class="font-bold text-white text-sm sm:text-base truncate" id="main-channel-title">一般</span>
+                </div>
+                
+                <div class="flex items-center gap-2">
+                    <!-- 通話接続中バッジ -->
+                    <div id="mobile-voice-indicator" class="hidden flex items-center gap-1 bg-discord-green/20 text-discord-green px-2 py-0.5 rounded text-xs">
+                        <i data-lucide="radio" class="w-3 h-3 animate-pulse"></i>
+                        <span class="hidden sm:inline">通話接続中</span>
+                    </div>
+
+                    <!-- 画面共有ボタン -->
+                    <button id="screenshare-btn" onclick="toggleScreenShare()" class="hidden flex items-center gap-1 bg-discord-blurple hover:bg-discord-blurple-hover text-white text-xs px-2.5 py-1.5 rounded font-medium transition-colors">
+                        <i data-lucide="screen-share" class="w-4 h-4"></i>
+                        <span id="screenshare-btn-text" class="hidden sm:inline">画面共有</span>
+                    </button>
+
+                    <!-- ヘルプ・ガイドボタン -->
+                    <button onclick="openHelpModal()" class="p-1.5 text-discord-muted hover:text-white rounded bg-discord-sidebar md:bg-transparent" title="マイク許可ガイド">
+                        <i data-lucide="help-circle" class="w-5 h-5"></i>
+                    </button>
+
+                    <!-- 参加者ドロワー切り替えボタン (スマホ用) -->
+                    <button onclick="toggleParticipantsDrawer()" class="p-1.5 text-discord-muted hover:text-white rounded bg-discord-sidebar md:bg-transparent">
+                        <i data-lucide="users" class="w-5 h-5"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- メインコンテンツ領域（画面共有 ＋ チャット ＋ 右側参加者） -->
+            <div class="flex-1 flex overflow-hidden relative">
+                
+                <!-- チャット / 画面共有領域 -->
+                <div class="flex-1 flex flex-col justify-between overflow-hidden relative">
+                    
+                    <!-- 画面共有動画プレイヤー -->
+                    <div id="screen-share-container" class="hidden flex-1 bg-black p-1 flex flex-col items-center justify-center relative group min-h-[180px] max-h-[60vh]">
+                        <video id="screen-share-video" autoplay playsinline muted class="max-h-full max-w-full rounded object-contain"></video>
+                        <div class="absolute bottom-2 left-2 bg-black/70 backdrop-blur px-2.5 py-1 rounded text-[11px] text-white flex items-center gap-1.5">
+                            <i data-lucide="monitor" class="w-3.5 h-3.5 text-discord-blurple"></i>
+                            <span id="screen-share-label">画面共有（マイクラ/全画面/ウィンドウ）配信中</span>
+                        </div>
+                    </div>
+
+                    <!-- チャットログ -->
+                    <div id="chat-container" class="flex-1 p-3 sm:p-4 overflow-y-auto space-y-3">
+                        <div class="flex flex-col items-start my-2 sm:my-4">
+                            <div class="w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-discord-sidebar flex items-center justify-center mb-2">
+                                <i data-lucide="hash" class="w-6 h-6 sm:w-8 sm:h-8 text-discord-text"></i>
+                            </div>
+                            <h2 class="text-xl sm:text-2xl font-bold text-white">#一般 へようこそ！</h2>
+                            <p class="text-xs text-discord-muted">スマホとPCでリアルタイムボイス通話や画面共有ができるルームです。</p>
+                        </div>
+                        <div id="message-list" class="space-y-3"></div>
+                    </div>
+
+                    <!-- メッセージ入力バー -->
+                    <div class="p-2 sm:p-4 pt-0">
+                        <div class="bg-discord-sidebar rounded-lg px-3 py-2 flex items-center gap-2 border border-black/10">
+                            <button class="text-discord-muted hover:text-discord-text">
+                                <i data-lucide="plus-circle" class="w-5 h-5"></i>
+                            </button>
+                            <input id="chat-input" type="text" placeholder="#一般 へメッセージを送信" onkeydown="handleChatSubmit(event)" class="bg-transparent flex-1 text-xs sm:text-sm outline-none text-discord-text placeholder-discord-muted">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 参加者リスト（デスクトップ時右側 / スマホ時ドロワー） -->
+                <div id="participants-sidebar" class="fixed md:relative inset-y-0 right-0 z-30 w-64 bg-discord-sidebar border-l border-black/20 p-3 flex flex-col gap-3 overflow-y-auto flex-shrink-0 translate-x-full md:translate-x-0 drawer-transition shadow-xl md:shadow-none pt-safe">
+                    <div class="flex items-center justify-between text-xs font-semibold text-discord-muted uppercase tracking-wider pb-1 border-b border-black/10">
+                        <span>通話参加者</span>
+                        <span id="participant-count-badge">0 / 8</span>
+                    </div>
+
+                    <div id="participant-grid" class="flex flex-col gap-2">
+                        <!-- 動的参加者カード -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- スマホ＆全画面対応：ボイスコントロール固定バー -->
+            <div id="voice-control-bar" class="hidden bg-discord-darker border-t border-black/20 px-3 py-2 flex items-center justify-between flex-shrink-0 z-20 pb-safe">
+                <div class="flex items-center gap-2 min-w-0">
+                    <div class="w-3 h-3 bg-discord-green rounded-full animate-pulse flex-shrink-0"></div>
+                    <div class="flex flex-col min-w-0">
+                        <span class="text-xs font-bold text-white truncate" id="bottom-room-label">ルーム接続中</span>
+                        <span class="text-[10px] text-discord-muted truncate" id="bottom-status-label">内蔵マイクアクティブ</span>
+                    </div>
+                </div>
+
+                <!-- コントロールボタン群 -->
+                <div class="flex items-center gap-1.5 sm:gap-2">
+                    <button id="mic-toggle-btn" onclick="toggleMic()" class="w-10 h-10 rounded-full bg-discord-sidebar flex items-center justify-center text-discord-text hover:bg-discord-hover active:scale-95 transition-all">
+                        <i data-lucide="mic" class="w-5 h-5"></i>
+                    </button>
+                    <button id="deafen-toggle-btn" onclick="toggleDeafen()" class="w-10 h-10 rounded-full bg-discord-sidebar flex items-center justify-center text-discord-text hover:bg-discord-hover active:scale-95 transition-all">
+                        <i data-lucide="headphones" class="w-5 h-5"></i>
+                    </button>
+                    <button onclick="openSettingsModal()" class="w-10 h-10 rounded-full bg-discord-sidebar flex items-center justify-center text-discord-text hover:bg-discord-hover active:scale-95 transition-all">
+                        <i data-lucide="settings" class="w-5 h-5"></i>
+                    </button>
+                    <button onclick="disconnectVoice()" class="w-10 h-10 rounded-full bg-discord-red flex items-center justify-center text-white hover:opacity-90 active:scale-95 transition-all">
+                        <i data-lucide="phone-off" class="w-5 h-5"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 1. ルーム作成/参加 ＆ マイク許可起動モーダル -->
+    <div id="room-modal" class="fixed inset-0 bg-black/70 flex items-center justify-center z-50 hidden backdrop-blur-sm p-4">
+        <div class="bg-discord-bg w-full max-w-md rounded-xl p-5 sm:p-6 shadow-2xl border border-black/20 space-y-4">
+            <div class="flex justify-between items-center border-b border-black/20 pb-3">
+                <h3 class="text-lg sm:text-xl font-bold text-white flex items-center gap-2">
+                    <i data-lucide="radio" class="w-5 h-5 text-discord-blurple"></i> ボイスチャット接続
+                </h3>
+                <button onclick="closeRoomModal()" class="text-discord-muted hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+
+            <!-- スマホ向け通知アラート -->
+            <div id="mobile-mic-notice" class="bg-discord-blurple/10 border border-discord-blurple/30 p-3 rounded-lg text-xs space-y-1 text-discord-text">
+                <div class="font-bold flex items-center gap-1.5 text-discord-blurple">
+                    <i data-lucide="smartphone" class="w-4 h-4"></i> スマホをご利用の方へ
+                </div>
+                <p>下の「マイクを許可して通話開始」を押すと、スマホの内蔵マイクアクセスの許可ポップアップが表示されます。</p>
+            </div>
+
+            <div class="space-y-3">
+                <div>
+                    <label class="text-xs font-bold text-discord-muted uppercase">表示名（ユーザー名）</label>
+                    <input id="modal-username-input" type="text" class="w-full bg-discord-darker border border-black/30 rounded-lg p-2.5 text-sm mt-1 outline-none focus:border-discord-blurple text-white">
+                </div>
+
+                <div>
+                    <label class="text-xs font-bold text-discord-muted uppercase">ルームID（接続コード）</label>
+                    <div class="flex gap-2 mt-1">
+                        <input id="modal-room-id-input" type="text" class="flex-1 bg-discord-darker border border-black/30 rounded-lg p-2.5 text-sm outline-none focus:border-discord-blurple text-white font-mono" placeholder="例: room-123">
+                        <button onclick="generateRandomRoomId()" class="bg-discord-sidebar hover:bg-discord-hover text-xs px-3 rounded-lg text-discord-muted hover:text-white">自動入力</button>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="text-xs font-bold text-discord-muted uppercase">最大参加人数</label>
+                    <select id="modal-max-users-select" class="w-full bg-discord-darker border border-black/30 rounded-lg p-2.5 text-sm mt-1 outline-none focus:border-discord-blurple text-white">
+                        <option value="2">2人 (1対1)</option>
+                        <option value="4">4人</option>
+                        <option value="8" selected>8人 (標準)</option>
+                        <option value="16">16人</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="pt-2 flex flex-col gap-2">
+                <button id="start-voice-btn" onclick="requestMicAndConnect()" class="w-full bg-discord-blurple hover:bg-discord-blurple-hover active:scale-98 text-white py-3 rounded-lg font-bold transition-all text-sm flex items-center justify-center gap-2 shadow-lg">
+                    <i data-lucide="mic" class="w-5 h-5"></i> マイクを許可して通話開始
+                </button>
+                <button onclick="copyInviteLink()" class="w-full bg-discord-sidebar hover:bg-discord-hover text-discord-text py-2 rounded-lg font-medium transition-colors text-xs flex items-center justify-center gap-1">
+                    <i data-lucide="copy" class="w-3.5 h-3.5"></i> 招待用リンクをコピー
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. マイク・サウンド設定モーダル -->
+    <div id="settings-modal" class="fixed inset-0 bg-black/70 flex items-center justify-center z-50 hidden backdrop-blur-sm p-4">
+        <div class="bg-discord-bg w-full max-w-lg rounded-xl p-5 sm:p-6 shadow-2xl border border-black/20 space-y-4 max-h-[90vh] flex flex-col">
+            <div class="flex justify-between items-center border-b border-black/20 pb-3 flex-shrink-0">
+                <h3 class="text-lg sm:text-xl font-bold text-white flex items-center gap-2">
+                    <i data-lucide="settings" class="w-5 h-5 text-discord-blurple"></i> 音声＆内蔵マイク設定
+                </h3>
+                <button onclick="closeSettingsModal()" class="text-discord-muted hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+
+            <div class="space-y-4 overflow-y-auto pr-1 flex-1">
+                <!-- 入力デバイス (内蔵マイク / イヤホン) -->
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="text-xs font-bold text-discord-muted uppercase">入力マイク (内蔵 / 外部デバイス)</label>
+                        <button onclick="populateDeviceSelectors()" class="text-[11px] text-discord-blurple hover:underline flex items-center gap-1">
+                            <i data-lucide="refresh-cw" class="w-3 h-3"></i> デバイス再読み込み
+                        </button>
+                    </div>
+                    <select id="mic-device-select" onchange="changeAudioInputDevice()" class="w-full bg-discord-darker border border-black/30 rounded-lg p-2.5 text-xs sm:text-sm text-white outline-none focus:border-discord-blurple">
+                        <option value="">スマホ内蔵マイク / 既定</option>
+                    </select>
+                </div>
+
+                <!-- マイク感度・音量テストバー -->
+                <div>
+                    <label class="text-xs font-bold text-discord-muted uppercase tracking-wider block mb-1">マイク入力レベルテスト</label>
+                    <div class="w-full bg-discord-darker h-3.5 rounded-full overflow-hidden p-0.5 border border-black/20">
+                        <div id="mic-level-bar" class="h-full bg-discord-green w-0 transition-all duration-75 rounded-full"></div>
+                    </div>
+                </div>
+
+                <!-- 出力デバイス (スピーカー) -->
+                <div>
+                    <label class="text-xs font-bold text-discord-muted uppercase tracking-wider block mb-1">出力スピーカー (※PC/Android対応)</label>
+                    <select id="speaker-device-select" onchange="changeAudioOutputDevice()" class="w-full bg-discord-darker border border-black/30 rounded-lg p-2.5 text-xs sm:text-sm text-white outline-none focus:border-discord-blurple">
+                        <option value="">既定のスピーカー / イヤホン</option>
+                    </select>
+                </div>
+
+                <!-- 出力音量スライダー -->
+                <div>
+                    <div class="flex justify-between text-xs font-bold text-discord-muted uppercase mb-1">
+                        <span>相手の音声ボリューム</span>
+                        <span id="output-vol-label">100%</span>
+                    </div>
+                    <input id="output-vol-slider" type="range" min="0" max="100" value="100" oninput="updateOutputVolume(this.value)" class="w-full accent-discord-blurple bg-discord-darker rounded cursor-pointer">
+                </div>
+            </div>
+
+            <div class="pt-2 flex-shrink-0">
+                <button onclick="closeSettingsModal()" class="w-full bg-discord-blurple hover:bg-discord-blurple-hover text-white py-2.5 rounded-lg font-medium transition-colors text-sm">
+                    完了
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. スマホマイクトラブルシューティング（ヘルプ）モーダル -->
+    <div id="help-modal" class="fixed inset-0 bg-black/70 flex items-center justify-center z-50 hidden backdrop-blur-sm p-4">
+        <div class="bg-discord-bg w-full max-w-lg rounded-xl p-5 sm:p-6 shadow-2xl border border-black/20 space-y-4 max-h-[90vh] flex flex-col">
+            <div class="flex justify-between items-center border-b border-black/20 pb-3 flex-shrink-0">
+                <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                    <i data-lucide="help-circle" class="w-5 h-5 text-discord-blurple"></i> スマホでのマイク許可ガイド
+                </h3>
+                <button onclick="closeHelpModal()" class="text-discord-muted hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+
+            <div class="space-y-3 overflow-y-auto pr-1 flex-1 text-xs sm:text-sm text-discord-text">
+                <div class="p-3 bg-discord-darker rounded-lg border border-black/20 space-y-1">
+                    <div class="font-bold text-white flex items-center gap-1.5 text-discord-blurple">
+                        <i data-lucide="lock" class="w-4 h-4"></i> 1. HTTPS（暗号化通信）で開いていますか？
+                    </div>
+                    <p class="text-discord-muted text-xs">スマホのブラウザ（Safari/Chrome）は、通信保護のため **https:// で始まるURL** でしかマイク使用を許可しません。`file://` や `http://` では動作しないため、Web上にアップロードしてアクセスしてください。</p>
+                </div>
+
+                <div class="p-3 bg-discord-darker rounded-lg border border-black/20 space-y-1">
+                    <div class="font-bold text-white flex items-center gap-1.5 text-discord-blurple">
+                        <i data-lucide="globe" class="w-4 h-4"></i> 2. 標準ブラウザで開き直す
+                    </div>
+                    <p class="text-discord-muted text-xs">LINEやX（旧Twitter）アプリ内のブラウザでリンクを開いている場合、マイクが強制ブロックされます。URLをコピーして **Safari** または **Chrome** で直接開いてください。</p>
+                </div>
+
+                <div class="p-3 bg-discord-darker rounded-lg border border-black/20 space-y-1">
+                    <div class="font-bold text-white flex items-center gap-1.5 text-discord-blurple">
+                        <i data-lucide="settings" class="w-4 h-4"></i> 3. iPhone (Safari) のマイク設定
+                    </div>
+                    <p class="text-discord-muted text-xs">設定アプリ ＞ Safari ＞ マイク ＞ **「許可」** に変更。アドレスバー左端の「ぁあ」アイコンからWebサイト設定を確認できます。</p>
+                </div>
+
+                <div class="p-3 bg-discord-darker rounded-lg border border-black/20 space-y-1">
+                    <div class="font-bold text-white flex items-center gap-1.5 text-discord-blurple">
+                        <i data-lucide="settings" class="w-4 h-4"></i> 4. Android (Chrome) のマイク設定
+                    </div>
+                    <p class="text-discord-muted text-xs">アドレスバー左側の鍵アイコンをタップ ＞ 「権限」または「サイトの設定」 ＞ マイクを **「許可」** にします。</p>
+                </div>
+            </div>
+
+            <div class="pt-2 flex-shrink-0">
+                <button onclick="closeHelpModal()" class="w-full bg-discord-sidebar hover:bg-discord-hover text-white py-2 rounded-lg text-xs font-medium">
+                    閉じる
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 音声再生用コンテナ -->
+    <div id="remote-audio-container" class="hidden"></div>
+
+    <script>
+        /* --- 状態変数 --- */
+        let myUserId = 'user-' + Math.floor(1000 + Math.random() * 9000);
+        let myUsername = 'ユーザー_' + Math.floor(100 + Math.random() * 900);
+        let currentRoomId = 'general-room';
+        let maxRoomUsers = 8;
+        
+        let peer = null;
+        let localStream = null;
+        let screenStream = null;
+        
+        let isMuted = false;
+        let isDeafened = false;
+        let isSharingScreen = false;
+
+        let activePeers = {}; 
+        let audioContext = null;
+        let analyser = null;
+        let micStreamSource = null;
+        let animFrameId = null;
+
+        /* --- 初期化処理 --- */
+        window.onload = function() {
+            lucide.createIcons();
+
+            // ランダム初期表示名
+            document.getElementById('display-username').innerText = myUsername;
+            document.getElementById('display-user-id').innerText = '#' + myUserId.split('-')[1];
+            document.getElementById('user-avatar').innerText = myUsername.charAt(0);
+
+            // URLパラメータ取得
+            const urlParams = new URLSearchParams(window.location.search);
+            const roomParam = urlParams.get('room');
+            if (roomParam) {
+                currentRoomId = roomParam;
+            }
+            document.getElementById('modal-room-id-input').value = currentRoomId;
+            document.getElementById('modal-username-input').value = myUsername;
+
+            // スマホ表示の調整
+            const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+            if (isMobile) {
+                document.getElementById('mobile-mic-notice').classList.remove('hidden');
+            }
+        };
+
+        /* --- モバイル用UIトグル処理 --- */
+        function toggleMobileSidebar(show) {
+            const sidebar = document.getElementById('sidebar-container');
+            const backdrop = document.getElementById('sidebar-backdrop');
+            
+            if (show) {
+                sidebar.classList.remove('-translate-x-full');
+                backdrop.classList.remove('hidden');
+            } else {
+                sidebar.classList.add('-translate-x-full');
+                backdrop.classList.add('hidden');
+            }
+        }
+
+        function toggleParticipantsDrawer() {
+            const drawer = document.getElementById('participants-sidebar');
+            drawer.classList.toggle('translate-x-full');
+        }
+
+        /* --- スマホフレンドリーなマイク取得＆接続処理 --- */
+        async function requestMicAndConnect() {
+            myUsername = document.getElementById('modal-username-input').value.trim() || myUsername;
+            currentRoomId = document.getElementById('modal-room-id-input').value.trim() || 'general-room';
+            maxRoomUsers = parseInt(document.getElementById('modal-max-users-select').value, 10);
+
+            document.getElementById('display-username').innerText = myUsername;
+            document.getElementById('user-avatar').innerText = myUsername.charAt(0);
+
+            const startBtn = document.getElementById('start-voice-btn');
+            startBtn.disabled = true;
+            startBtn.innerHTML = `<i data-lucide="loader-2" class="w-5 h-5 animate-spin"></i> マイク接続中...`;
+            lucide.createIcons();
+
+            try {
+                // スマホSafari/ChromeでOverconstrainedErrorを起こさない柔軟な制約設定
+                const initialConstraints = {
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    },
+                    video: false
+                };
+
+                localStream = await navigator.mediaDevices.getUserMedia(initialConstraints);
+                
+                // マイクが取得できたらデバイスリストを最新化
+                await populateDeviceSelectors();
+                startMicVisualizer(localStream);
+
+                closeRoomModal();
+
+                // UI表示変更
+                document.getElementById('voice-control-bar').classList.remove('hidden');
+                document.getElementById('mobile-voice-indicator').classList.remove('hidden');
+                document.getElementById('bottom-room-label').innerText = `接続中: ${currentRoomId}`;
+                document.getElementById('screenshare-btn').classList.remove('hidden');
+                document.getElementById('display-user-id').innerText = 'オンライン';
+                document.getElementById('user-status-dot').className = "w-2.5 h-2.5 bg-discord-green rounded-full absolute bottom-0 right-0 border-2 border-discord-darker";
+
+                renderLocalParticipantCard();
+                initializePeerJS();
+
+            } catch (err) {
+                console.error("マイク許可エラー:", err);
+                startBtn.disabled = false;
+                startBtn.innerHTML = `<i data-lucide="mic" class="w-5 h-5"></i> マイクを許可して通話開始`;
+                lucide.createIcons();
+
+                if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                    openHelpModal();
+                } else if (err.name === 'NotFoundError') {
+                    alert("マイクデバイスが見つかりませんでした。イヤホンや内蔵マイクの接続を確認してください。");
+                } else {
+                    alert(`マイク接続時にエラーが発生しました (${err.name}):\n${err.message}`);
+                }
+            }
+        }
+
+        /* --- デバイス検出（スマホ内蔵マイク/Bluetooth対応） --- */
+        async function populateDeviceSelectors() {
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const micSelect = document.getElementById('mic-device-select');
+                const speakerSelect = document.getElementById('speaker-device-select');
+
+                micSelect.innerHTML = '<option value="">内蔵マイク (標準/自動)</option>';
+                speakerSelect.innerHTML = '<option value="">既定のスピーカー/イヤホン</option>';
+
+                let micCount = 1;
+                let speakerCount = 1;
+
+                devices.forEach(device => {
+                    const option = document.createElement('option');
+                    option.value = device.deviceId;
+
+                    if (device.kind === 'audioinput') {
+                        option.text = device.label || `マイク ${micCount++}`;
+                        micSelect.appendChild(option);
+                    } else if (device.kind === 'audiooutput') {
+                        option.text = device.label || `スピーカー ${speakerCount++}`;
+                        speakerSelect.appendChild(option);
+                    }
+                });
+            } catch (err) {
+                console.warn('デバイス列挙失敗:', err);
+            }
+        }
+
+        /* --- 音声可視化 (マイク感度バー) --- */
+        function startMicVisualizer(stream) {
+            if (!stream) return;
+            try {
+                if (!audioContext) {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                if (audioContext.state === 'suspended') {
+                    audioContext.resume();
+                }
+
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 64;
+                micStreamSource = audioContext.createMediaStreamSource(stream);
+                micStreamSource.connect(analyser);
+
+                const dataArray = new Uint8Array(analyser.frequencyBinCount);
+                const bar = document.getElementById('mic-level-bar');
+
+                function updateMeter() {
+                    analyser.getByteFrequencyData(dataArray);
+                    let sum = 0;
+                    for (let i = 0; i < dataArray.length; i++) {
+                        sum += dataArray[i];
+                    }
+                    let average = sum / dataArray.length;
+                    let percentage = Math.min(100, Math.max(0, (average / 128) * 100));
+                    
+                    if (bar) bar.style.width = percentage + '%';
+
+                    // 発話検出 (緑枠線を表示)
+                    const localCard = document.getElementById('participant-card-local');
+                    if (localCard) {
+                        if (percentage > 12 && !isMuted) {
+                            localCard.classList.add('speaking-border');
+                        } else {
+                            localCard.classList.remove('speaking-border');
+                        }
+                    }
+
+                    animFrameId = requestAnimationFrame(updateMeter);
+                }
+                updateMeter();
+            } catch (e) {
+                console.error("ビジュアライザー初期化失敗:", e);
+            }
+        }
+
+        function stopMicVisualizer() {
+            if (animFrameId) cancelAnimationFrame(animFrameId);
+            const bar = document.getElementById('mic-level-bar');
+            if (bar) bar.style.width = '0%';
+        }
+
+        /* --- WebRTC (PeerJS) 接続管理 --- */
+        function initializePeerJS() {
+            const fullPeerId = `${currentRoomId}___${myUserId}`;
+
+            peer = new Peer(fullPeerId, { debug: 1 });
+
+            peer.on('open', (id) => {
+                addChatMessage('システム', `${myUsername} がボイスチャットに接続しました。`, true);
+            });
+
+            peer.on('call', (call) => {
+                call.answer(localStream);
+                handleIncomingCall(call);
+            });
+
+            peer.on('connection', (conn) => {
+                setupDataConnection(conn);
+            });
+
+            peer.on('error', (err) => {
+                console.error("PeerJSエラー:", err);
+            });
+        }
+
+        function handleIncomingCall(call) {
+            const remotePeerId = call.peer;
+
+            call.on('stream', (remoteStream) => {
+                let audioElem = document.getElementById(`audio-${remotePeerId}`);
+                if (!audioElem) {
+                    audioElem = document.createElement('audio');
+                    audioElem.id = `audio-${remotePeerId}`;
+                    audioElem.autoplay = true;
+                    audioElem.setAttribute('playsinline', 'true');
+                    document.getElementById('remote-audio-container').appendChild(audioElem);
+                }
+                audioElem.srcObject = remoteStream;
+
+                addOrUpdateParticipant(remotePeerId, remoteStream);
+            });
+
+            call.on('close', () => {
+                removeParticipant(remotePeerId);
+            });
+        }
+
+        function setupDataConnection(conn) {
+            conn.on('data', (data) => {
+                if (data.type === 'chat-message') {
+                    addChatMessage(data.username, data.message);
+                }
+            });
+        }
+
+        function renderLocalParticipantCard() {
+            const grid = document.getElementById('participant-grid');
+            let card = document.getElementById('participant-card-local');
+
+            if (!card) {
+                card = document.createElement('div');
+                card.id = 'participant-card-local';
+                card.className = "bg-discord-darker p-2.5 rounded-lg flex items-center justify-between border border-black/20 transition-all";
+                grid.appendChild(card);
+            }
+
+            card.innerHTML = `
+                <div class="flex items-center gap-2 overflow-hidden">
+                    <div class="w-8 h-8 rounded-full bg-discord-blurple flex items-center justify-center font-bold text-white text-xs flex-shrink-0">
+                        ${myUsername.charAt(0)}
+                    </div>
+                    <div class="flex flex-col min-w-0">
+                        <span class="text-xs font-bold truncate text-white">${myUsername} (自分)</span>
+                        <span class="text-[10px] text-discord-muted">${isSharingScreen ? '画面配信中' : '内蔵マイク通話中'}</span>
+                    </div>
+                </div>
+                <div class="flex items-center gap-1 text-discord-muted">
+                    <i data-lucide="${isMuted ? 'mic-off' : 'mic'}" class="w-4 h-4 ${isMuted ? 'text-discord-red' : ''}"></i>
+                    <i data-lucide="${isDeafened ? 'headphones' : 'headphones'}" class="w-4 h-4 ${isDeafened ? 'text-discord-red' : ''}"></i>
+                </div>
+            `;
+            lucide.createIcons();
+            updateUserCount();
+        }
+
+        function addOrUpdateParticipant(peerId, stream) {
+            const peerUsername = activePeers[peerId]?.username || 'ユーザー_' + peerId.slice(-4);
+            const grid = document.getElementById('participant-grid');
+            
+            let card = document.getElementById(`participant-card-${peerId}`);
+            if (!card) {
+                card = document.createElement('div');
+                card.id = `participant-card-${peerId}`;
+                card.className = "bg-discord-darker p-2.5 rounded-lg flex items-center justify-between border border-black/20 transition-all";
+                grid.appendChild(card);
+            }
+
+            card.innerHTML = `
+                <div class="flex items-center gap-2 overflow-hidden">
+                    <div class="w-8 h-8 rounded-full bg-zinc-600 flex items-center justify-center font-bold text-white text-xs flex-shrink-0">
+                        ${peerUsername.charAt(0)}
+                    </div>
+                    <div class="flex flex-col min-w-0">
+                        <span class="text-xs font-bold truncate text-white">${peerUsername}</span>
+                        <span class="text-[10px] text-discord-muted">通話中</span>
+                    </div>
+                </div>
+                <div class="flex items-center gap-1 text-discord-muted">
+                    <i data-lucide="mic" class="w-4 h-4"></i>
+                </div>
+            `;
+            lucide.createIcons();
+            updateUserCount();
+        }
+
+        function removeParticipant(peerId) {
+            const card = document.getElementById(`participant-card-${peerId}`);
+            if (card) card.remove();
+            
+            const audioElem = document.getElementById(`audio-${peerId}`);
+            if (audioElem) audioElem.remove();
+
+            delete activePeers[peerId];
+            updateUserCount();
+        }
+
+        function updateUserCount() {
+            const count = document.getElementById('participant-grid').children.length;
+            document.getElementById('participant-count-badge').innerText = `${count} / ${maxRoomUsers}`;
+            document.getElementById('voice-user-count').innerText = count;
+        }
+
+        /* --- 画面共有機能 (PC/マイクラ/スマホ対応) --- */
+        async function toggleScreenShare() {
+            if (isSharingScreen) {
+                stopScreenShare();
+            } else {
+                try {
+                    if (!navigator.mediaDevices.getDisplayMedia) {
+                        alert("お使いの環境（ブラウザ）は画面共有機能をサポートしていません。");
+                        return;
+                    }
+
+                    screenStream = await navigator.mediaDevices.getDisplayMedia({
+                        video: { cursor: "always" },
+                        audio: true
+                    });
+
+                    isSharingScreen = true;
+                    
+                    const screenContainer = document.getElementById('screen-share-container');
+                    const screenVideo = document.getElementById('screen-share-video');
+
+                    screenVideo.srcObject = screenStream;
+                    screenContainer.classList.remove('hidden');
+                    
+                    document.getElementById('screenshare-btn-text').innerText = '停止';
+                    document.getElementById('screenshare-btn').classList.replace('bg-discord-blurple', 'bg-discord-red');
+
+                    screenStream.getVideoTracks()[0].onended = () => {
+                        stopScreenShare();
+                    };
+
+                    renderLocalParticipantCard();
+                    addChatMessage('システム', `${myUsername} が画面共有（マイクラ/画面）を開始しました。`, true);
+
+                } catch (err) {
+                    console.warn("画面共有キャンセルまたはエラー:", err);
+                }
+            }
+        }
+
+        function stopScreenShare() {
+            if (screenStream) {
+                screenStream.getTracks().forEach(track => track.stop());
+                screenStream = null;
+            }
+            isSharingScreen = false;
+
+            document.getElementById('screen-share-container').classList.add('hidden');
+            document.getElementById('screenshare-btn-text').innerText = '画面共有';
+            document.getElementById('screenshare-btn').classList.replace('bg-discord-red', 'bg-discord-blurple');
+
+            renderLocalParticipantCard();
+            addChatMessage('システム', `${myUsername} が画面共有を終了しました。`, true);
+        }
+
+        /* --- マイク・スピーカー機能コントロール --- */
+        function toggleMic() {
+            if (!localStream) return;
+            isMuted = !isMuted;
+
+            localStream.getAudioTracks().forEach(track => {
+                track.enabled = !isMuted;
+            });
+
+            const btn = document.getElementById('mic-toggle-btn');
+            btn.innerHTML = `<i data-lucide="${isMuted ? 'mic-off' : 'mic'}" class="w-5 h-5 ${isMuted ? 'text-discord-red' : ''}"></i>`;
+            lucide.createIcons();
+
+            document.getElementById('bottom-status-label').innerText = isMuted ? 'マイクミュート中' : '内蔵マイクアクティブ';
+
+            renderLocalParticipantCard();
+        }
+
+        function toggleDeafen() {
+            isDeafened = !isDeafened;
+
+            const remoteAudios = document.querySelectorAll('#remote-audio-container audio');
+            remoteAudios.forEach(a => a.muted = isDeafened);
+
+            const btn = document.getElementById('deafen-toggle-btn');
+            btn.innerHTML = `<i data-lucide="${isDeafened ? 'headphones' : 'headphones'}" class="w-5 h-5 ${isDeafened ? 'text-discord-red' : ''}"></i>`;
+            lucide.createIcons();
+
+            if (isDeafened && !isMuted) toggleMic();
+
+            renderLocalParticipantCard();
+        }
+
+        function disconnectVoice() {
+            if (localStream) {
+                localStream.getTracks().forEach(t => t.stop());
+                localStream = null;
+            }
+            if (screenStream) stopScreenShare();
+            stopMicVisualizer();
+
+            if (peer) {
+                peer.destroy();
+                peer = null;
+            }
+
+            document.getElementById('voice-control-bar').classList.add('hidden');
+            document.getElementById('mobile-voice-indicator').classList.add('hidden');
+            document.getElementById('screenshare-btn').classList.add('hidden');
+            document.getElementById('participant-grid').innerHTML = '';
+            document.getElementById('display-user-id').innerText = '未接続';
+            document.getElementById('user-status-dot').className = "w-2.5 h-2.5 bg-discord-muted rounded-full absolute bottom-0 right-0 border-2 border-discord-darker";
+
+            updateUserCount();
+            addChatMessage('システム', `ボイスチャットから切断しました。`, true);
+        }
+
+        /* --- チャット・設定ユーティリティ --- */
+        function handleChatSubmit(e) {
+            if (e.key === 'Enter') {
+                const input = document.getElementById('chat-input');
+                const message = input.value.trim();
+                if (message) {
+                    addChatMessage(myUsername, message);
+                    input.value = '';
+                }
+            }
+        }
+
+        function addChatMessage(author, message, isSystem = false) {
+            const list = document.getElementById('message-list');
+            const msgDiv = document.createElement('div');
+            
+            if (isSystem) {
+                msgDiv.className = "text-[11px] text-discord-muted italic my-1";
+                msgDiv.innerText = `[システム] ${message}`;
+            } else {
+                msgDiv.className = "flex items-start gap-2.5 hover:bg-discord-darker/30 p-1 rounded -mx-1";
+                msgDiv.innerHTML = `
+                    <div class="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-discord-blurple flex items-center justify-center font-bold text-white text-xs flex-shrink-0">
+                        ${author.charAt(0)}
+                    </div>
+                    <div class="flex flex-col min-w-0">
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs font-bold text-white truncate">${author}</span>
+                            <span class="text-[9px] text-discord-muted">${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                        </div>
+                        <p class="text-xs sm:text-sm text-discord-text mt-0.5 break-words">${escapeHtml(message)}</p>
+                    </div>
+                `;
+            }
+            
+            list.appendChild(msgDiv);
+            const chatContainer = document.getElementById('chat-container');
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        function escapeHtml(text) {
+            return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        }
+
+        function openRoomModal() {
+            document.getElementById('room-modal').classList.remove('hidden');
+        }
+
+        closeRoomModal = () => document.getElementById('room-modal').classList.add('hidden');
+
+        function openSettingsModal() {
+            document.getElementById('settings-modal').classList.remove('hidden');
+        }
+
+        closeSettingsModal = () => document.getElementById('settings-modal').classList.add('hidden');
+
+        function openHelpModal() {
+            document.getElementById('help-modal').classList.remove('hidden');
+        }
+
+        closeHelpModal = () => document.getElementById('help-modal').classList.add('hidden');
+
+        function generateRandomRoomId() {
+            document.getElementById('modal-room-id-input').value = 'room-' + Math.random().toString(36).substring(2, 7);
+        }
+
+        function copyInviteLink() {
+            const roomId = document.getElementById('modal-room-id-input').value.trim() || 'general-room';
+            const inviteUrl = `${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(roomId)}`;
+            
+            const tempInput = document.createElement('input');
+            tempInput.value = inviteUrl;
+            document.body.appendChild(tempInput);
+            tempInput.select();
+            document.execCommand('copy');
+            document.body.removeChild(tempInput);
+
+            alert(`招待用URLをコピーしました！\n${inviteUrl}`);
+        }
+
+        async function changeAudioInputDevice() {
+            if (localStream) {
+                localStream.getTracks().forEach(t => t.stop());
+                
+                const selectedDeviceId = document.getElementById('mic-device-select').value;
+                const constraints = {
+                    audio: selectedDeviceId ? { deviceId: { exact: selectedDeviceId } } : true,
+                    video: false
+                };
+
+                try {
+                    localStream = await navigator.mediaDevices.getUserMedia(constraints);
+                    startMicVisualizer(localStream);
+                } catch (e) {
+                    console.error("デバイス切替エラー:", e);
+                }
+            }
+        }
+
+        function changeAudioOutputDevice() {
+            const speakerId = document.getElementById('speaker-device-select').value;
+            const audioElems = document.querySelectorAll('#remote-audio-container audio');
+            
+            audioElems.forEach(audio => {
+                if (typeof audio.setSinkId === 'function') {
+                    audio.setSinkId(speakerId).catch(err => console.error("スピーカー切替エラー:", err));
+                }
+            });
+        }
+
+        function updateOutputVolume(val) {
+            document.getElementById('output-vol-label').innerText = `${val}%`;
+            const volume = val / 100;
+            const audioElems = document.querySelectorAll('#remote-audio-container audio');
+            audioElems.forEach(a => a.volume = volume);
+        }
+
+        function switchChannel(channelName) {
+            document.getElementById('main-channel-title').innerText = channelName;
+        }
+    </script>
+</body>
+</html>
