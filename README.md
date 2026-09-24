@@ -1,0 +1,2 @@
+# aafagffga.github.io
+discordもどきサイト
